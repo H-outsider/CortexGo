@@ -61,4 +61,6 @@ HTTP / CLI → Agent (ReAct + Memory + Tools)
 
 当前本地实现不提供静态加密、跨进程文件锁、完整 BM25 IDF、复杂 OCR 版面恢复和持久化任务进度；这些能力应由正式基础设施或专用适配器承担。
 
+安全层提供 API Key/JWT、RBAC、租户上下文与 Memory/Knowledge 隔离包装器、SSRF URL 校验、上传路径/类型校验、Prompt 清理和审计脱敏。多租户使用时应始终通过 `security.WithTenant` 建立请求上下文。
+
 详细的分阶段学习与开发说明见 [`DEVELOPMENT_STEPS.md`](DEVELOPMENT_STEPS.md)。欢迎提交 Issue 或 Pull Request。
