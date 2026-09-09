@@ -9,6 +9,7 @@ import (
 
 	"github.com/cortexgo/cortexgo/internal/memory"
 	"github.com/cortexgo/cortexgo/internal/provider"
+	"github.com/cortexgo/cortexgo/internal/telemetry"
 	"github.com/cortexgo/cortexgo/internal/tool"
 )
 
@@ -28,6 +29,8 @@ type Agent struct {
 	contextLimit  int
 	tokenBudget   int
 	summarizer    memory.SummaryFunc
+	telemetry     telemetry.Recorder
+	costMonitor   *telemetry.CostMonitor
 }
 
 type ChatResult = provider.ChatResult
@@ -96,6 +99,13 @@ func WithContextTokenBudget(budget int) Option {
 			a.tokenBudget = budget
 		}
 	}
+}
+
+func WithTelemetry(recorder telemetry.Recorder) Option {
+	return func(a *Agent) { a.telemetry = recorder }
+}
+func WithCostMonitor(monitor telemetry.CostMonitor) Option {
+	return func(a *Agent) { a.costMonitor = &monitor }
 }
 
 func New(model provider.ChatModel, store memory.Store, options ...Option) *Agent {
@@ -181,7 +191,14 @@ func (a *Agent) run(ctx context.Context, sessionID, input string, stream bool, o
 	}
 
 	for round := 0; ; round++ {
+		started := time.Now()
 		result, err := a.callModel(ctx, transcript, stream, streamDelta, options)
+		event := telemetry.ModelEvent{Operation: "chat", StartedAt: started, Duration: time.Since(started), Usage: result.Usage, Err: err, Model: result.Model}
+		if a.costMonitor != nil {
+			a.costMonitor.Record(ctx, event)
+		} else if a.telemetry != nil {
+			a.telemetry.RecordModel(ctx, event)
+		}
 		if err != nil {
 			return ChatResult{}, err
 		}

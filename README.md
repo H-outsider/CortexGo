@@ -58,6 +58,8 @@ Agent 可通过消息数上限或近似 Token 预算和 `SummaryFunc` 自动触�
 
 知识库还提供 `knowledge.SearchTool(index)`，可注册到 Agent 的工具 Registry，让模型在对话中检索知识并获得 chunk 引用；搜索支持按 metadata 精确过滤，重复添加同一文档 ID 会先移除旧 chunks，实现增量更新。
 
+Agent 提供 `WithTelemetry` 和 `WithCostMonitor` 观测钩子：每次模型调用记录耗时、模型、Token 用量和错误，并可按模型配置每 1K Token 价格计算 USD 成本。`internal/telemetry` 的无依赖接口可桥接到 OpenTelemetry SDK；框架不内置导出器，避免绑定具体后端。
+
 ## 分阶段路线
 
 1. 最小内核（已完成）：接口、会话记忆、可运行 CLI。
@@ -66,5 +68,7 @@ Agent 可通过消息数上限或近似 Token 预算和 `SummaryFunc` 自动触�
 4. 知识管理（当前）：文档解析、切分、Embedding、向量检索、混合搜索和引用。
 5. 记忆系统（基础层已开始）：短期会话记忆、长期用户记忆、摘要压缩和可控遗忘。
 6. 企业能力：多租户、RBAC、密钥管理、限流、持久化、OpenTelemetry 和 HTTP API。
+
+HTTP API 可通过 `internal/api` 使用：注册 `api.NewServer(agent).Handler()` 后挂载到 `http.Server`。提供 `GET /healthz`、`POST /chat` 和 OpenAI 兼容的 `POST /v1/chat/completions`；请求支持 `session_id`、`input`、`messages` 和 `stream` 字段，流式响应使用 SSE。
 
 每一步都会先保持接口稳定，再替换实现，避免把业务代码绑定到某一个模型或数据库。

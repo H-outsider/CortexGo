@@ -334,6 +334,7 @@ go run ./cmd/cortexgo \
 - 限流、配额、成本统计和背压。
 - PostgreSQL/Redis 等持久化选型。
 - OpenTelemetry 的 trace、metric、log 三类信号。
+- 当前 Agent 已提供可桥接 OpenTelemetry 的模型调用观测事件，并支持按模型 Token 单价计算成本；导出器和后端由应用层接入。
 - HTTP API、服务部署、健康检查和优雅退出。
 - 安全边界：SSRF、Prompt Injection、数据泄露和工具滥用。
 
