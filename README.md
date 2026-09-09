@@ -72,6 +72,8 @@ Agent 的工具循环现在可通过 `WithEventSink` 订阅 ReAct 事件流：`r
 
 `internal/tasks` 提供内存异步任务队列（可配置 worker 并发、状态和错误查询）与 Cron 调度器；队列接口可在部署层替换为 Redis、PostgreSQL 等持久化实现。
 
+任务持久化现提供 `tasks.GORMStore`：支持 `AutoMigrate`、JSONB payload、租户索引、带 lease 的原子领取、重试次数和完成/失败状态。使用 PostgreSQL 时由应用创建 `gorm.DB` 并注入对应驱动。
+
 Agent 提供 `WithTelemetry` 和 `WithCostMonitor` 观测钩子：每次模型调用记录耗时、模型、Token 用量和错误，并可按模型配置每 1K Token 价格计算 USD 成本。`internal/telemetry` 的无依赖接口可桥接到 OpenTelemetry SDK；框架不内置导出器，避免绑定具体后端。
 
 ## 分阶段路线
