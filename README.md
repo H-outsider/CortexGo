@@ -62,6 +62,8 @@ Agent 可通过消息数上限或近似 Token 预算和 `SummaryFunc` 自动触�
 
 专用向量数据库接口 `knowledge.VectorDatabase` 已提供持久化实现 `OpenVectorDatabase(path)`，支持向量 Upsert、余弦相似度检索、metadata 过滤、文档删除和条目统计；底层文件格式便于本地开发，生产环境可替换为外部向量数据库。
 
+Provider 现提供 `NewGLM`、`NewDeepSeek`、`NewQwen`、`NewGroq` 预设，以及统一 `NewProvider` 工厂；这些服务均复用 OpenAI-compatible Chat/Stream/Tool 协议。
+
 知识导入层新增 OCR 依赖检测、文档版本哈希、`AsyncImporter` 后台导入和进度查询；同一内容不会重复生成版本。大文件仍通过 `SplitDocument` 分块，生产环境可将导入任务接入队列。
 
 可靠性基础层 `internal/reliability` 提供 PostgreSQL/Redis 适配契约、租户请求/Token/成本预算、并发闸门（背压）以及 JSON 备份恢复工具。数据库驱动、分布式锁和 Redis 原子限流由部署层注入，避免核心库绑定具体基础设施。
