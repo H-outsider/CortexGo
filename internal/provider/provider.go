@@ -7,15 +7,40 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
 
 // Message 是模型上下文中的一条消息。
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+}
+
+type ToolCall struct {
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
+	Function ToolCallFunction `json:"function"`
+}
+
+type ToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type Tool struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+type ChatOptions struct {
+	Tools []Tool
 }
 
 type Usage struct {
@@ -29,6 +54,7 @@ type ChatResult struct {
 	Model        string
 	FinishReason string
 	Usage        Usage
+	ToolCalls    []ToolCall
 }
 
 // ChatModel 是所有 LLM 适配器必须实现的最小接口。
@@ -37,19 +63,53 @@ type ChatModel interface {
 	Chat(ctx context.Context, messages []Message) (ChatResult, error)
 }
 
+// ToolChatModel is the optional extension implemented by providers that accept tool definitions.
+type ToolChatModel interface {
+	ChatWithOptions(ctx context.Context, messages []Message, options ...ChatOptions) (ChatResult, error)
+}
+
 // StreamChatModel is implemented by providers that can emit tokens as they arrive.
 type StreamChatModel interface {
 	ChatStream(ctx context.Context, messages []Message, onDelta func(string) error) (ChatResult, error)
+}
+
+// ToolStreamChatModel is the optional streaming extension for tool definitions.
+type ToolStreamChatModel interface {
+	ChatStreamWithOptions(ctx context.Context, messages []Message, onDelta func(string) error, options ...ChatOptions) (ChatResult, error)
 }
 
 type OpenAICompatible struct {
 	BaseURL        string
 	APIKey         string
 	Model          string
+	EmbeddingModel string
 	HTTPClient     *http.Client
 	MaxRetries     int
 	RequestTimeout time.Duration
 	RetryBackoff   time.Duration
+	Logger         *log.Logger
+}
+
+// Error adds stable operation/status context while preserving the underlying error.
+type Error struct {
+	Op     string
+	Status int
+	Err    error
+}
+
+func (e *Error) Error() string {
+	if e.Status != 0 {
+		return fmt.Sprintf("provider: %s (http %d): %v", e.Op, e.Status, e.Err)
+	}
+	return fmt.Sprintf("provider: %s: %v", e.Op, e.Err)
+}
+
+func (e *Error) Unwrap() error { return e.Err }
+
+func (p OpenAICompatible) logf(format string, args ...any) {
+	if p.Logger != nil {
+		p.Logger.Printf(format, args...)
+	}
 }
 
 type streamOptions struct {
@@ -61,6 +121,12 @@ type chatRequest struct {
 	Messages      []Message      `json:"messages"`
 	Stream        bool           `json:"stream,omitempty"`
 	StreamOptions *streamOptions `json:"stream_options,omitempty"`
+	Tools         []chatTool     `json:"tools,omitempty"`
+}
+
+type chatTool struct {
+	Type     string `json:"type"`
+	Function Tool   `json:"function"`
 }
 
 type chatResponse struct {
@@ -76,10 +142,18 @@ type chatResponse struct {
 }
 
 func (p OpenAICompatible) Chat(ctx context.Context, messages []Message) (ChatResult, error) {
+	return p.ChatWithOptions(ctx, messages)
+}
+
+func (p OpenAICompatible) ChatWithOptions(ctx context.Context, messages []Message, options ...ChatOptions) (ChatResult, error) {
 	if p.BaseURL == "" || p.Model == "" {
 		return ChatResult{}, fmt.Errorf("provider: BaseURL and Model are required")
 	}
-	body, err := json.Marshal(chatRequest{Model: p.Model, Messages: messages})
+	body, err := json.Marshal(chatRequest{
+		Model:    p.Model,
+		Messages: messages,
+		Tools:    chatTools(options),
+	})
 	if err != nil {
 		return ChatResult{}, err
 	}
@@ -94,6 +168,7 @@ func (p OpenAICompatible) Chat(ctx context.Context, messages []Message) (ChatRes
 	url := strings.TrimRight(p.BaseURL, "/") + "/v1/chat/completions"
 
 	for attempt := 0; ; attempt++ {
+		p.logf("chat request attempt=%d model=%s", attempt+1, p.Model)
 		result, retry, err := p.doChat(requestCtx, client, url, body)
 		if err == nil {
 			return result, nil
@@ -101,6 +176,7 @@ func (p OpenAICompatible) Chat(ctx context.Context, messages []Message) (ChatRes
 		if !retry || attempt >= retries {
 			return ChatResult{}, err
 		}
+		p.logf("chat request failed; retrying attempt=%d error=%v", attempt+1, err)
 		if waitErr := waitForRetry(requestCtx, retryDelay(p.RetryBackoff, attempt)); waitErr != nil {
 			return ChatResult{}, waitErr
 		}
@@ -127,10 +203,10 @@ func (p OpenAICompatible) doChat(ctx context.Context, client *http.Client, url s
 		return ChatResult{}, true, readErr
 	}
 	if retryableStatus(resp.StatusCode) {
-		return ChatResult{}, true, fmt.Errorf("provider: http %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		return ChatResult{}, true, &Error{Op: "chat", Status: resp.StatusCode, Err: fmt.Errorf("%s", strings.TrimSpace(string(data)))}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return ChatResult{}, false, fmt.Errorf("provider: http %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		return ChatResult{}, false, &Error{Op: "chat", Status: resp.StatusCode, Err: fmt.Errorf("%s", strings.TrimSpace(string(data)))}
 	}
 
 	var result chatResponse
@@ -144,15 +220,32 @@ func (p OpenAICompatible) doChat(ctx context.Context, client *http.Client, url s
 		return ChatResult{}, false, fmt.Errorf("provider: response has no choices")
 	}
 
+	message := result.Choices[0].Message
 	chatResult := ChatResult{
 		Content:      result.Choices[0].Message.Content,
 		Model:        result.Model,
 		FinishReason: result.Choices[0].FinishReason,
+		ToolCalls:    message.ToolCalls,
 	}
 	if result.Usage != nil {
 		chatResult.Usage = *result.Usage
 	}
 	return chatResult, false, nil
+}
+
+func chatTools(options []ChatOptions) []chatTool {
+	if len(options) == 0 {
+		return nil
+	}
+	tools := options[0].Tools
+	if len(tools) == 0 {
+		return nil
+	}
+	specs := make([]chatTool, 0, len(tools))
+	for _, tool := range tools {
+		specs = append(specs, chatTool{Type: "function", Function: tool})
+	}
+	return specs
 }
 
 func retryableStatus(status int) bool {
@@ -206,6 +299,10 @@ func waitForRetry(ctx context.Context, delay time.Duration) error {
 
 // ChatStream consumes Server-Sent Events and calls onDelta for each text delta.
 func (p OpenAICompatible) ChatStream(ctx context.Context, messages []Message, onDelta func(string) error) (ChatResult, error) {
+	return p.ChatStreamWithOptions(ctx, messages, onDelta)
+}
+
+func (p OpenAICompatible) ChatStreamWithOptions(ctx context.Context, messages []Message, onDelta func(string) error, options ...ChatOptions) (ChatResult, error) {
 	if p.BaseURL == "" || p.Model == "" {
 		return ChatResult{}, fmt.Errorf("provider: BaseURL and Model are required")
 	}
@@ -217,6 +314,7 @@ func (p OpenAICompatible) ChatStream(ctx context.Context, messages []Message, on
 		Messages:      messages,
 		Stream:        true,
 		StreamOptions: &streamOptions{IncludeUsage: true},
+		Tools:         chatTools(options),
 	})
 	if err != nil {
 		return ChatResult{}, err
@@ -233,6 +331,7 @@ func (p OpenAICompatible) ChatStream(ctx context.Context, messages []Message, on
 
 	var resp *http.Response
 	for attempt := 0; ; attempt++ {
+		p.logf("stream request attempt=%d model=%s", attempt+1, p.Model)
 		req, reqErr := http.NewRequestWithContext(requestCtx, http.MethodPost, url, bytes.NewReader(body))
 		if reqErr != nil {
 			return ChatResult{}, reqErr
@@ -249,6 +348,7 @@ func (p OpenAICompatible) ChatStream(ctx context.Context, messages []Message, on
 			if attempt >= retries {
 				return ChatResult{}, doErr
 			}
+			p.logf("stream request failed; retrying attempt=%d error=%v", attempt+1, doErr)
 			if waitErr := waitForRetry(requestCtx, retryDelay(p.RetryBackoff, attempt)); waitErr != nil {
 				return ChatResult{}, waitErr
 			}
@@ -259,7 +359,7 @@ func (p OpenAICompatible) ChatStream(ctx context.Context, messages []Message, on
 			data, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			if attempt >= retries {
-				return ChatResult{}, fmt.Errorf("provider: stream http %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+				return ChatResult{}, &Error{Op: "stream", Status: resp.StatusCode, Err: fmt.Errorf("%s", strings.TrimSpace(string(data)))}
 			}
 			if waitErr := waitForRetry(requestCtx, retryDelay(p.RetryBackoff, attempt)); waitErr != nil {
 				return ChatResult{}, waitErr
@@ -272,12 +372,13 @@ func (p OpenAICompatible) ChatStream(ctx context.Context, messages []Message, on
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(resp.Body)
-		return ChatResult{}, fmt.Errorf("provider: stream http %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		return ChatResult{}, &Error{Op: "stream", Status: resp.StatusCode, Err: fmt.Errorf("%s", strings.TrimSpace(string(data)))}
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	var result ChatResult
+	toolCalls := make(map[int]ToolCall)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(line, "data:") {
@@ -292,7 +393,8 @@ func (p OpenAICompatible) ChatStream(ctx context.Context, messages []Message, on
 			Model   string `json:"model"`
 			Choices []struct {
 				Delta struct {
-					Content string `json:"content"`
+					Content   string           `json:"content"`
+					ToolCalls []streamToolCall `json:"tool_calls"`
 				} `json:"delta"`
 				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
@@ -315,15 +417,61 @@ func (p OpenAICompatible) ChatStream(ctx context.Context, messages []Message, on
 			result.FinishReason = choice.FinishReason
 		}
 		if choice.Delta.Content != "" {
+			result.Content += choice.Delta.Content
 			if err := onDelta(choice.Delta.Content); err != nil {
 				return ChatResult{}, err
 			}
+		}
+		for _, call := range choice.Delta.ToolCalls {
+			existing := toolCalls[call.Index]
+			existing.ID = firstNonEmpty(existing.ID, call.ID)
+			existing.Type = firstNonEmpty(existing.Type, call.Type)
+			existing.Function.Name = firstNonEmpty(existing.Function.Name, call.Function.Name)
+			existing.Function.Arguments += call.Function.Arguments
+			toolCalls[call.Index] = existing
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return ChatResult{}, err
 	}
+	result.ToolCalls = orderedToolCalls(toolCalls)
 	return result, nil
+}
+
+type streamToolCall struct {
+	Index    int              `json:"index"`
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
+	Function ToolCallFunction `json:"function"`
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func orderedToolCalls(calls map[int]ToolCall) []ToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	indexes := make([]int, 0, len(calls))
+	for index := range calls {
+		indexes = append(indexes, index)
+	}
+	sort.Ints(indexes)
+	ordered := make([]ToolCall, 0, len(indexes))
+	for _, index := range indexes {
+		call := calls[index]
+		if call.Type == "" {
+			call.Type = "function"
+		}
+		ordered = append(ordered, call)
+	}
+	return ordered
 }
 
 // Echo 是本地可运行的开发模型，用于验证 Agent 编排链路。

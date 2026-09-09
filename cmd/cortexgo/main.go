@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/cortexgo/cortexgo/internal/agent"
+	"github.com/cortexgo/cortexgo/internal/knowledge"
 	"github.com/cortexgo/cortexgo/internal/memory"
 	"github.com/cortexgo/cortexgo/internal/provider"
+	"github.com/cortexgo/cortexgo/internal/tool"
 )
 
 func main() {
@@ -28,6 +30,12 @@ func main() {
 	requestTimeout := flags.Duration("timeout", envDuration("CORTEXGO_TIMEOUT", 120*time.Second), "request timeout")
 	stream := flags.Bool("stream", true, "stream output when the provider supports it")
 	showUsage := flags.Bool("show-usage", envBool("CORTEXGO_SHOW_USAGE", false), "print model and token usage after each response")
+	enableTools := flags.Bool("tools", envBool("CORTEXGO_TOOLS", true), "enable the built-in tool registry")
+	embeddingModel := flags.String("embedding-model", envDefault("CORTEXGO_EMBEDDING_MODEL", ""), "embedding model for knowledge commands")
+	knowledgeFile := flags.String("knowledge-file", "", "ingest a text file into an in-memory knowledge index")
+	knowledgeQuery := flags.String("knowledge-query", "", "query the ingested knowledge file and exit")
+	knowledgeIndex := flags.String("knowledge-index", envDefault("CORTEXGO_KNOWLEDGE_INDEX", ".cortexgo-knowledge.json"), "persistent knowledge index path")
+	memoryFile := flags.String("memory-file", envDefault("CORTEXGO_MEMORY_FILE", ""), "persist conversation memory to a JSON file")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		log.Fatal(err)
 	}
@@ -39,11 +47,54 @@ func main() {
 		MaxRetries:     *maxRetries,
 		RetryBackoff:   *retryBackoff,
 		RequestTimeout: *requestTimeout,
+		Logger:         log.Default(),
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	a := agent.New(chatModel, memory.NewInMemory())
+	registry := tool.NewRegistry()
+	if *enableTools {
+		if err := registry.Register(tool.CurrentTime()); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if *knowledgeFile != "" || *knowledgeQuery != "" {
+		if *providerName != "openai" {
+			log.Fatal("knowledge commands require -provider=openai")
+		}
+		if *knowledgeFile == "" || strings.TrimSpace(*knowledgeQuery) == "" {
+			log.Fatal("-knowledge-file and -knowledge-query must be provided together")
+		}
+		content, err := os.ReadFile(*knowledgeFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		embedder := provider.OpenAICompatible{BaseURL: *baseURL, APIKey: os.Getenv("CORTEXGO_API_KEY"), Model: *modelName, EmbeddingModel: *embeddingModel, MaxRetries: *maxRetries, RetryBackoff: *retryBackoff, RequestTimeout: *requestTimeout, Logger: log.Default()}
+		index, err := knowledge.NewPersistentHybridIndex(*knowledgeIndex, embedder, 0.5)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := index.Add(ctx, knowledge.Document{ID: *knowledgeFile, Title: *knowledgeFile, Content: string(content)}); err != nil {
+			log.Fatal(err)
+		}
+		results, err := index.Search(ctx, *knowledgeQuery, 5)
+		if err != nil {
+			log.Fatal(err)
+		}
+		for _, result := range results {
+			fmt.Printf("[%s score=%.3f] %s\n", result.Chunk.ID, result.Score, result.Chunk.Text)
+		}
+		return
+	}
+	var store memory.Store = memory.NewInMemory()
+	if *memoryFile != "" {
+		fileStore, err := memory.OpenFileStore(*memoryFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		store = fileStore
+	}
+	a := agent.New(chatModel, store, agent.WithTools(registry))
 
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)

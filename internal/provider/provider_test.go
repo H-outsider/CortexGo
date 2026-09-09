@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -123,7 +124,7 @@ func TestOpenAICompatibleChatStreamConsumesDeltas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if output.String() != "你好" || result.Content != "" {
+	if output.String() != "你好" || result.Content != "你好" {
 		t.Fatalf("stream output = %q", output.String())
 	}
 	if result.Model != "response-model" || result.FinishReason != "stop" {
@@ -174,6 +175,101 @@ func TestOpenAICompatibleChatStreamRetriesServerErrors(t *testing.T) {
 	}
 	if output.String() != "ok" || requests != 2 {
 		t.Fatalf("output = %q, requests = %d", output.String(), requests)
+	}
+}
+
+func TestOpenAICompatibleChatDecodesToolCalls(t *testing.T) {
+	var requestBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		_, _ = w.Write([]byte(`{
+			"model":"response-model",
+			"choices":[{
+				"message":{
+					"role":"assistant",
+					"tool_calls":[{
+						"id":"call-1",
+						"type":"function",
+						"function":{"name":"current_time","arguments":"{}"}
+					}]
+				},
+				"finish_reason":"tool_calls"
+			}]
+		}`))
+	}))
+	defer server.Close()
+
+	result, err := OpenAICompatible{BaseURL: server.URL, Model: "test-model"}.ChatWithOptions(
+		context.Background(),
+		[]Message{{Role: "user", Content: "现在几点"}},
+		ChatOptions{Tools: []Tool{{
+			Name:        "current_time",
+			Description: "Get the current UTC time",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{}}`),
+		}}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Content != "" || result.FinishReason != "tool_calls" || len(result.ToolCalls) != 1 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	call := result.ToolCalls[0]
+	if call.ID != "call-1" || call.Type != "function" || call.Function.Name != "current_time" || call.Function.Arguments != "{}" {
+		t.Fatalf("unexpected tool call: %#v", call)
+	}
+	tools, ok := requestBody["tools"].([]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("tools = %#v", requestBody["tools"])
+	}
+	function, ok := tools[0].(map[string]any)["function"].(map[string]any)
+	if !ok || function["name"] != "current_time" || function["description"] != "Get the current UTC time" {
+		t.Fatalf("function tool = %#v", tools[0])
+	}
+	parameters, ok := function["parameters"].(map[string]any)
+	if !ok || parameters["type"] != "object" {
+		t.Fatalf("parameters = %#v", function["parameters"])
+	}
+}
+
+func TestOpenAICompatibleChatStreamAggregatesToolCalls(t *testing.T) {
+	var requestBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"model":"response-model","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"current_time","arguments":"{\"format\":"}}]}}]}`)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"rfc3339\"}"}}]}}]}`)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"finish_reason":"tool_calls"}]}`)
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	result, err := OpenAICompatible{BaseURL: server.URL, Model: "test-model"}.ChatStreamWithOptions(
+		context.Background(),
+		[]Message{{Role: "user", Content: "现在几点"}},
+		func(string) error { return nil },
+		ChatOptions{Tools: []Tool{{
+			Name:        "current_time",
+			Description: "Get the current UTC time",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"format":{"type":"string"}}}`),
+		}}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %#v", result.ToolCalls)
+	}
+	call := result.ToolCalls[0]
+	if call.ID != "call-1" || call.Function.Name != "current_time" || call.Function.Arguments != `{"format":"rfc3339"}` {
+		t.Fatalf("unexpected aggregated call: %#v", call)
+	}
+	if _, ok := requestBody["tools"].([]any); !ok {
+		t.Fatalf("tools were not sent: %#v", requestBody["tools"])
 	}
 }
 
