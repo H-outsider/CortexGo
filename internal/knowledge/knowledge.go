@@ -256,7 +256,9 @@ func scoreChunk(terms []string, text string) float64 {
 	var score float64
 	for _, term := range terms {
 		if counts[term] > 0 {
-			score += 1 + float64(counts[term]-1)*0.25
+			tf := float64(counts[term])
+			// BM25-style term-frequency saturation (IDF is unavailable in the in-memory index).
+			score += (tf * 2.2) / (tf + 1.2)
 		}
 	}
 	return score
