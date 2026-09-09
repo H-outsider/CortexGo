@@ -61,3 +61,20 @@ func (s *MemoryEventSink) Publish(_ context.Context, event Event) error {
 	s.Events = append(s.Events, event)
 	return nil
 }
+
+type ChannelEventSink struct{ Events chan Event }
+
+func NewChannelEventSink(size int) *ChannelEventSink {
+	if size < 1 {
+		size = 1
+	}
+	return &ChannelEventSink{Events: make(chan Event, size)}
+}
+func (s *ChannelEventSink) Publish(ctx context.Context, event Event) error {
+	select {
+	case s.Events <- event:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

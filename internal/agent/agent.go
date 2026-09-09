@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cortexgo/cortexgo/internal/core"
 	"github.com/cortexgo/cortexgo/internal/memory"
 	"github.com/cortexgo/cortexgo/internal/provider"
 	"github.com/cortexgo/cortexgo/internal/telemetry"
@@ -31,6 +32,7 @@ type Agent struct {
 	summarizer    memory.SummaryFunc
 	telemetry     telemetry.Recorder
 	costMonitor   *telemetry.CostMonitor
+	eventSink     core.EventSink
 }
 
 type ChatResult = provider.ChatResult
@@ -108,6 +110,8 @@ func WithCostMonitor(monitor telemetry.CostMonitor) Option {
 	return func(a *Agent) { a.costMonitor = &monitor }
 }
 
+func WithEventSink(sink core.EventSink) Option { return func(a *Agent) { a.eventSink = sink } }
+
 func New(model provider.ChatModel, store memory.Store, options ...Option) *Agent {
 	a := &Agent{
 		model:         model,
@@ -140,6 +144,8 @@ func (a *Agent) ChatStreamWithResult(ctx context.Context, sessionID, input strin
 }
 
 func (a *Agent) run(ctx context.Context, sessionID, input string, stream bool, onDelta func(string) error) (ChatResult, error) {
+	runID := fmt.Sprintf("run-%d", time.Now().UnixNano())
+	a.emit(ctx, core.Event{ID: runID + ":started", RunID: runID, TaskID: sessionID, Type: "run.started", Time: time.Now().UTC()})
 	history, err := a.memory.List(ctx, sessionID)
 	if err != nil {
 		return ChatResult{}, err
@@ -193,6 +199,7 @@ func (a *Agent) run(ctx context.Context, sessionID, input string, stream bool, o
 	for round := 0; ; round++ {
 		started := time.Now()
 		result, err := a.callModel(ctx, transcript, stream, streamDelta, options)
+		a.emit(ctx, core.Event{ID: fmt.Sprintf("%s:model:%d", runID, round), RunID: runID, TaskID: sessionID, Type: "model.completed", Time: time.Now().UTC(), Payload: mustJSON(result)})
 		event := telemetry.ModelEvent{Operation: "chat", StartedAt: started, Duration: time.Since(started), Usage: result.Usage, Err: err, Model: result.Model}
 		if a.costMonitor != nil {
 			a.costMonitor.Record(ctx, event)
@@ -217,6 +224,7 @@ func (a *Agent) run(ctx context.Context, sessionID, input string, stream bool, o
 			if err := a.memory.Append(ctx, sessionID, transcript[historyStart:]...); err != nil {
 				return ChatResult{}, err
 			}
+			a.emit(ctx, core.Event{ID: runID + ":completed", RunID: runID, TaskID: sessionID, Type: "run.completed", Time: time.Now().UTC()})
 			return result, nil
 		}
 
@@ -233,6 +241,7 @@ func (a *Agent) run(ctx context.Context, sessionID, input string, stream bool, o
 			ToolCalls: result.ToolCalls,
 		})
 		for _, call := range result.ToolCalls {
+			a.emit(ctx, core.Event{ID: runID + ":tool:" + call.ID + ":started", RunID: runID, TaskID: sessionID, Type: "tool.started", Time: time.Now().UTC(), Payload: mustJSON(call)})
 			output, invokeErr := a.invokeTool(ctx, sessionID, call)
 			if invokeErr != nil {
 				errorOutput, _ := json.Marshal(map[string]string{"error": invokeErr.Error()})
@@ -243,6 +252,7 @@ func (a *Agent) run(ctx context.Context, sessionID, input string, stream bool, o
 				ToolCallID: call.ID,
 				Content:    string(output),
 			})
+			a.emit(ctx, core.Event{ID: runID + ":tool:" + call.ID + ":completed", RunID: runID, TaskID: sessionID, Type: "tool.completed", Time: time.Now().UTC(), Payload: mustJSON(map[string]any{"call_id": call.ID, "error": errorString(invokeErr)})})
 		}
 	}
 }
@@ -360,6 +370,21 @@ func errorString(err error) string {
 func safeAudit(logger ToolAuditLogger, ctx context.Context, event ToolAuditEvent) {
 	defer func() { _ = recover() }()
 	logger(ctx, event)
+}
+
+func (a *Agent) emit(ctx context.Context, event core.Event) {
+	if a.eventSink == nil {
+		return
+	}
+	_ = a.eventSink.Publish(ctx, event)
+}
+
+func mustJSON(value any) json.RawMessage {
+	b, err := json.Marshal(value)
+	if err != nil {
+		return json.RawMessage(`null`)
+	}
+	return b
 }
 
 type toolResult struct {
