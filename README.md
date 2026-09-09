@@ -70,6 +70,8 @@ Agent 可通过消息数上限或近似 Token 预算和 `SummaryFunc` 自动触�
 
 Agent 的工具循环现在可通过 `WithEventSink` 订阅 ReAct 事件流：`run.started`、`model.completed`、`tool.started`、`tool.completed`、`run.completed`。`ChannelEventSink` 可直接用于实时消费。
 
+`internal/tasks` 提供内存异步任务队列（可配置 worker 并发、状态和错误查询）与 Cron 调度器；队列接口可在部署层替换为 Redis、PostgreSQL 等持久化实现。
+
 Agent 提供 `WithTelemetry` 和 `WithCostMonitor` 观测钩子：每次模型调用记录耗时、模型、Token 用量和错误，并可按模型配置每 1K Token 价格计算 USD 成本。`internal/telemetry` 的无依赖接口可桥接到 OpenTelemetry SDK；框架不内置导出器，避免绑定具体后端。
 
 ## 分阶段路线
