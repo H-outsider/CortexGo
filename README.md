@@ -35,6 +35,8 @@ go run ./cmd/cortexgo -knowledge-file=README.md -knowledge-query="向量检索"
 
 可通过 `-knowledge-index` 或 `CORTEXGO_KNOWLEDGE_INDEX` 指定索引文件路径。
 
+只指定 `-knowledge-file` 时会进入正常对话，并自动注册 `knowledge_search` 工具，让模型在对话中检索该知识库；只指定 `-knowledge-query` 时则查询已有索引并退出。
+
 常用参数：`-provider`、`-base-url`、`-model`、`-embedding-model`、`-session`、`-memory-file`、`-retries`、`-retry-backoff`、`-timeout`、`-stream=false`、`-show-usage`、`-tools=false`。API key 只从 `CORTEXGO_API_KEY` 读取，避免出现在命令行参数里。
 
 代码边界：

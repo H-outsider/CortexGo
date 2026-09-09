@@ -62,29 +62,35 @@ func main() {
 		if *providerName != "openai" {
 			log.Fatal("knowledge commands require -provider=openai")
 		}
-		if *knowledgeFile == "" || strings.TrimSpace(*knowledgeQuery) == "" {
-			log.Fatal("-knowledge-file and -knowledge-query must be provided together")
-		}
-		content, err := os.ReadFile(*knowledgeFile)
-		if err != nil {
-			log.Fatal(err)
-		}
 		embedder := provider.OpenAICompatible{BaseURL: *baseURL, APIKey: os.Getenv("CORTEXGO_API_KEY"), Model: *modelName, EmbeddingModel: *embeddingModel, MaxRetries: *maxRetries, RetryBackoff: *retryBackoff, RequestTimeout: *requestTimeout, Logger: log.Default()}
 		index, err := knowledge.NewPersistentHybridIndex(*knowledgeIndex, embedder, 0.5)
 		if err != nil {
 			log.Fatal(err)
 		}
-		if err := index.Add(ctx, knowledge.Document{ID: *knowledgeFile, Title: *knowledgeFile, Content: string(content)}); err != nil {
-			log.Fatal(err)
+		if *knowledgeFile != "" {
+			content, readErr := os.ReadFile(*knowledgeFile)
+			if readErr != nil {
+				log.Fatal(readErr)
+			}
+			if err := index.Add(ctx, knowledge.Document{ID: *knowledgeFile, Title: *knowledgeFile, Content: string(content)}); err != nil {
+				log.Fatal(err)
+			}
 		}
-		results, err := index.Search(ctx, *knowledgeQuery, 5)
-		if err != nil {
-			log.Fatal(err)
+		if strings.TrimSpace(*knowledgeQuery) != "" {
+			results, searchErr := index.Search(ctx, *knowledgeQuery, 5)
+			if searchErr != nil {
+				log.Fatal(searchErr)
+			}
+			for _, result := range results {
+				fmt.Printf("[%s score=%.3f] %s\n", result.Chunk.ID, result.Score, result.Chunk.Text)
+			}
+			return
 		}
-		for _, result := range results {
-			fmt.Printf("[%s score=%.3f] %s\n", result.Chunk.ID, result.Score, result.Chunk.Text)
+		if *enableTools {
+			if err := registry.Register(knowledge.SearchTool(index)); err != nil {
+				log.Fatal(err)
+			}
 		}
-		return
 	}
 	var store memory.Store = memory.NewInMemory()
 	if *memoryFile != "" {

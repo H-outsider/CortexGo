@@ -261,6 +261,7 @@ go run ./cmd/cortexgo
 - 进程重启后恢复向量和 Chunk。
 - `NewPersistentHybridIndex` 自动重建关键词索引。
 - `knowledge.SearchTool` 将知识检索暴露为带引用的 Agent 工具。
+- CLI 只指定 `-knowledge-file` 时会在交互式 Agent 中自动注册知识检索工具。
 
 主要文件：
 
