@@ -336,6 +336,7 @@ go run ./cmd/cortexgo \
 - OpenTelemetry 的 trace、metric、log 三类信号。
 - 当前 Agent 已提供可桥接 OpenTelemetry 的模型调用观测事件，并支持按模型 Token 单价计算成本；导出器和后端由应用层接入。
 - `VectorDatabase` 提供专用向量存储契约，内置文件实现支持 Upsert、metadata 过滤、文档级删除和持久化恢复；后续可接入 Milvus、pgvector 等生产后端。
+- `internal/reliability` 已定义 PostgreSQL/Redis 适配接口，并提供租户级请求、Token、成本预算和并发背压，以及 JSON 备份/恢复基础工具；生产部署仍需补充数据库迁移脚本、分布式锁和定时备份编排。
 - HTTP API、服务部署、健康检查和优雅退出。
 - 安全边界：SSRF、Prompt Injection、数据泄露和工具滥用。
 
