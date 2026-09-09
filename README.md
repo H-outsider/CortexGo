@@ -22,7 +22,7 @@ CORTEXGO_API_KEY=your-key \
 go run ./cmd/cortexgo
 ```
 
-知识库导入与查询（默认持久化到 `.cortexgo-knowledge.json`）：
+知识库导入与查询（默认持久化到 `.cortexgo-knowledge.json`，支持 txt、Markdown 和基础 HTML）：
 
 ```bash
 CORTEXGO_PROVIDER=openai \

@@ -68,11 +68,11 @@ func main() {
 			log.Fatal(err)
 		}
 		if *knowledgeFile != "" {
-			content, readErr := os.ReadFile(*knowledgeFile)
-			if readErr != nil {
-				log.Fatal(readErr)
+			document, loadErr := (knowledge.FileLoader{}).Load(*knowledgeFile)
+			if loadErr != nil {
+				log.Fatal(loadErr)
 			}
-			if err := index.Add(ctx, knowledge.Document{ID: *knowledgeFile, Title: *knowledgeFile, Content: string(content)}); err != nil {
+			if err := index.Add(ctx, document); err != nil {
 				log.Fatal(err)
 			}
 		}
