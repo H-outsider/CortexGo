@@ -217,3 +217,11 @@ func ParseBearer(v string) (string, error) {
 	}
 	return t, nil
 }
+
+func (v *JWTVerifier) AuthenticateBearer(header string) (Identity, error) {
+	token, err := ParseBearer(header)
+	if err != nil {
+		return Identity{}, err
+	}
+	return v.Verify(token)
+}

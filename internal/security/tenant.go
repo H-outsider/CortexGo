@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/cortexgo/cortexgo/internal/core"
 	"github.com/cortexgo/cortexgo/internal/knowledge"
 	"github.com/cortexgo/cortexgo/internal/memory"
 	"github.com/cortexgo/cortexgo/internal/provider"
@@ -17,6 +19,56 @@ type tenantKey struct{}
 
 func WithTenant(ctx context.Context, tenant string) context.Context {
 	return context.WithValue(ctx, tenantKey{}, tenant)
+}
+
+type TenantVector struct{ DB knowledge.VectorDatabase }
+
+func (v TenantVector) Upsert(ctx context.Context, chunks []knowledge.Chunk, vectors [][]float64) error {
+	t, e := requireTenant(ctx)
+	if e != nil {
+		return e
+	}
+	for n := range chunks {
+		if chunks[n].Metadata == nil {
+			chunks[n].Metadata = map[string]string{}
+		}
+		chunks[n].Metadata["tenant_id"] = t
+	}
+	return v.DB.Upsert(ctx, chunks, vectors)
+}
+func (v TenantVector) SearchVector(ctx context.Context, vector []float64, limit int) ([]knowledge.VectorResult, error) {
+	t, e := requireTenant(ctx)
+	if e != nil {
+		return nil, e
+	}
+	return v.DB.SearchVectorWithFilter(ctx, vector, limit, knowledge.MetadataFilter{"tenant_id": t})
+}
+func (v TenantVector) SearchVectorWithFilter(ctx context.Context, vector []float64, limit int, filter knowledge.MetadataFilter) ([]knowledge.VectorResult, error) {
+	t, e := requireTenant(ctx)
+	if e != nil {
+		return nil, e
+	}
+	if filter == nil {
+		filter = knowledge.MetadataFilter{}
+	}
+	filter["tenant_id"] = t
+	return v.DB.SearchVectorWithFilter(ctx, vector, limit, filter)
+}
+func (v TenantVector) RemoveDocument(ctx context.Context, id string) error {
+	return v.DB.RemoveDocument(ctx, id)
+}
+func (v TenantVector) Count(ctx context.Context) int { return v.DB.Count(ctx) }
+
+type TenantTask struct {
+	Task     core.Task
+	TenantID string
+}
+
+func (t TenantTask) ID() string   { return t.Task.ID() }
+func (t TenantTask) Kind() string { return t.Task.Kind() }
+func (t TenantTask) Execute(ctx context.Context, run *core.Run) error {
+	run.TenantID = t.TenantID
+	return t.Task.Execute(WithTenant(ctx, t.TenantID), run)
 }
 func TenantFromContext(ctx context.Context) (string, bool) {
 	v, ok := ctx.Value(tenantKey{}).(string)
@@ -108,6 +160,15 @@ func ValidateUpload(path string, max int64, allowed map[string]bool) error {
 	ext := strings.ToLower(filepath.Ext(path))
 	if !allowed[ext] {
 		return fmt.Errorf("security: file type %q is not allowed", ext)
+	}
+	if max > 0 {
+		info, e := os.Stat(path)
+		if e != nil {
+			return e
+		}
+		if info.Size() > max {
+			return fmt.Errorf("security: upload exceeds size limit")
+		}
 	}
 	return nil
 }
