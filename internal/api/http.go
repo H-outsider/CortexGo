@@ -19,6 +19,7 @@ type Server struct {
 	MaxBodyBytes  int64
 	ResolveTenant TenantResolver
 	Authorizer    Authorizer
+	Authenticate  func(*http.Request) (security.Identity, bool)
 	Limiter       *SlidingWindowLimiter
 	APIKeys       *security.APIKeyStore
 	JWT           *security.JWTVerifier
@@ -46,6 +47,14 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		tenant := Tenant{ID: "default"}
+		if s.Authenticate != nil {
+			id, ok := s.Authenticate(r)
+			if !ok || id.Tenant == "" {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+				return
+			}
+			tenant = Tenant{ID: id.Tenant, Roles: id.Roles}
+		}
 		authenticated := false
 		if s.APIKeys != nil || s.JWT != nil {
 			var id security.Identity

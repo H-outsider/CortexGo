@@ -63,4 +63,6 @@ HTTP / CLI → Agent (ReAct + Memory + Tools)
 
 安全层提供 API Key/JWT、RBAC、租户上下文与 Memory/Knowledge 隔离包装器、SSRF URL 校验、上传路径/类型校验、Prompt 清理和审计脱敏。多租户使用时应始终通过 `security.WithTenant` 建立请求上下文。
 
+HTTP 鉴权可直接接入：`Server.Authenticate = security.APIKeyRequestAuthenticator(store)` 或 `security.JWTRequestAuthenticator(verifier)`，认证成功后租户和角色会进入请求上下文并参与 RBAC 判断。
+
 详细的分阶段学习与开发说明见 [`DEVELOPMENT_STEPS.md`](DEVELOPMENT_STEPS.md)。欢迎提交 Issue 或 Pull Request。

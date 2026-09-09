@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -224,4 +225,32 @@ func (v *JWTVerifier) AuthenticateBearer(header string) (Identity, error) {
 		return Identity{}, err
 	}
 	return v.Verify(token)
+}
+
+func APIKeyAuthenticator(store *APIKeyStore) func(string) (Identity, bool) {
+	return func(key string) (Identity, bool) {
+		if store == nil {
+			return Identity{}, false
+		}
+		return store.Authenticate(key)
+	}
+}
+func BearerAuthenticator(verifier *JWTVerifier) func(string) (Identity, bool) {
+	return func(header string) (Identity, bool) {
+		if verifier == nil {
+			return Identity{}, false
+		}
+		id, e := verifier.AuthenticateBearer(header)
+		return id, e == nil
+	}
+}
+
+func APIKeyRequestAuthenticator(store *APIKeyStore) func(*http.Request) (Identity, bool) {
+	return func(r *http.Request) (Identity, bool) { return APIKeyAuthenticator(store)(r.Header.Get("X-API-Key")) }
+}
+
+func JWTRequestAuthenticator(verifier *JWTVerifier) func(*http.Request) (Identity, bool) {
+	return func(r *http.Request) (Identity, bool) {
+		return BearerAuthenticator(verifier)(r.Header.Get("Authorization"))
+	}
 }
