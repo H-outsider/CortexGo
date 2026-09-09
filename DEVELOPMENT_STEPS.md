@@ -297,7 +297,7 @@ go run ./cmd/cortexgo \
 - 数据生命周期、隐私、可控遗忘和租户隔离。
 - 记忆召回与知识召回的合并排序。
 
-当前已实现 `FileStore`，支持 JSON 会话持久化、重启恢复、按 session 删除和原子写入；`memory.Store` 接口保持不变。
+当前已实现 `FileStore`，支持 JSON 会话持久化、重启恢复、按 session 删除和原子写入；另有 `FactStore`/`InMemoryFactStore` 管理用户级长期事实并支持按 key 遗忘。`memory.Store` 接口保持不变。
 
 ### 学习练习
 
@@ -310,6 +310,7 @@ go run ./cmd/cortexgo \
 
 - `internal/memory/memory.go`
 - `internal/memory/file_store.go`
+- `internal/memory/facts.go`
 
 - 短期会话记忆持久化。
 - 长期用户记忆。

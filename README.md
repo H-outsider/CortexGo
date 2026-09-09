@@ -46,6 +46,8 @@ go run ./cmd/cortexgo -knowledge-file=README.md -knowledge-query="向量检索"
 
 当前工具调用已支持基础 Schema 校验、权限策略、超时、多轮循环和结构化审计；更细粒度的企业 RBAC 与持久化审计仍在后续迭代中。
 
+长期记忆基础层提供用户事实存储和可控遗忘接口；事实默认只存在内存中，后续再接入持久化与隐私策略。
+
 知识管理基础层已支持 Unicode 文档切分、线程安全内存索引、关键词检索、向量检索和混合搜索；Embedding provider 与持久化向量数据库通过接口接入。
 
 ## 分阶段路线
