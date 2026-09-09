@@ -237,6 +237,22 @@ func TestAgentAutomaticallyCompactsHistory(t *testing.T) {
 	}
 }
 
+func TestAgentCompactsByTokenBudget(t *testing.T) {
+	store := memory.NewInMemory()
+	_ = store.Append(context.Background(), "tokens", provider.Message{Role: "user", Content: strings.Repeat("old ", 30)}, provider.Message{Role: "assistant", Content: "reply reply"})
+	called := 0
+	a := New(provider.Echo{}, store, WithContextTokenBudget(30), WithConversationSummarizer(func(context.Context, []provider.Message) (string, error) {
+		called++
+		return "summary", nil
+	}))
+	if _, err := a.Chat(context.Background(), "tokens", "latest"); err != nil {
+		t.Fatal(err)
+	}
+	if called != 1 {
+		t.Fatalf("summarizer calls=%d", called)
+	}
+}
+
 type scriptedToolModel struct {
 	calls             int
 	capturedMessages  [][]provider.Message

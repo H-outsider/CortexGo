@@ -26,6 +26,7 @@ type Agent struct {
 	authorizer    ToolAuthorizer
 	auditLogger   ToolAuditLogger
 	contextLimit  int
+	tokenBudget   int
 	summarizer    memory.SummaryFunc
 }
 
@@ -89,6 +90,14 @@ func WithConversationSummarizer(summarizer memory.SummaryFunc) Option {
 	return func(a *Agent) { a.summarizer = summarizer }
 }
 
+func WithContextTokenBudget(budget int) Option {
+	return func(a *Agent) {
+		if budget > 0 {
+			a.tokenBudget = budget
+		}
+	}
+}
+
 func New(model provider.ChatModel, store memory.Store, options ...Option) *Agent {
 	a := &Agent{
 		model:         model,
@@ -126,6 +135,23 @@ func (a *Agent) run(ctx context.Context, sessionID, input string, stream bool, o
 		return ChatResult{}, err
 	}
 	historyStart := len(history)
+	if a.tokenBudget > 0 {
+		candidate := append(append([]provider.Message(nil), history...), provider.Message{Role: "user", Content: input})
+		if memory.EstimateTokens(candidate) > a.tokenBudget {
+			inputBudget := a.tokenBudget - memory.EstimateTokens([]provider.Message{{Role: "user", Content: input}})
+			compacted, compactErr := compactTokenHistory(ctx, history, inputBudget, a.summarizer)
+			if compactErr != nil {
+				return ChatResult{}, compactErr
+			}
+			if replacer, ok := a.memory.(memory.ReplaceStore); ok {
+				if err := replacer.Replace(ctx, sessionID, compacted...); err != nil {
+					return ChatResult{}, fmt.Errorf("agent: persist token-compacted history: %w", err)
+				}
+			}
+			history = compacted
+			historyStart = len(history)
+		}
+	}
 	if a.contextLimit > 0 && len(history)+1 > a.contextLimit {
 		compacted, compactErr := compactHistory(ctx, history, a.contextLimit-1, a.summarizer)
 		if compactErr != nil {
@@ -202,6 +228,23 @@ func (a *Agent) run(ctx context.Context, sessionID, input string, stream bool, o
 			})
 		}
 	}
+}
+
+func compactTokenHistory(ctx context.Context, history []provider.Message, budget int, summarize memory.SummaryFunc) ([]provider.Message, error) {
+	if budget <= 0 {
+		return nil, fmt.Errorf("agent: token budget is too small for the new input")
+	}
+	if len(history) > 0 && history[0].Role == "system" && strings.HasPrefix(history[0].Content, "Conversation summary:\n") {
+		result := append([]provider.Message(nil), history...)
+		for len(result) > 0 && memory.EstimateTokens(result) > budget {
+			if len(result) == 1 {
+				return nil, fmt.Errorf("agent: existing conversation summary exceeds token budget %d", budget)
+			}
+			result = append(result[:1], result[2:]...)
+		}
+		return result, nil
+	}
+	return memory.CompactToTokenBudget(ctx, history, budget, summarize)
 }
 
 func compactHistory(ctx context.Context, history []provider.Message, limit int, summarize memory.SummaryFunc) ([]provider.Message, error) {

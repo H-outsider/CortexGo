@@ -45,3 +45,22 @@ func TestCompactKeepsToolCallWithItsResult(t *testing.T) {
 		t.Fatalf("tool pair was split: %#v", result)
 	}
 }
+
+func TestEstimateTokensCountsContentAndToolCalls(t *testing.T) {
+	short := EstimateTokens([]provider.Message{{Role: "user", Content: "hello"}})
+	long := EstimateTokens([]provider.Message{{Role: "user", Content: "hello hello hello hello"}})
+	if short <= 0 || long <= short {
+		t.Fatalf("short=%d long=%d", short, long)
+	}
+}
+
+func TestCompactToTokenBudget(t *testing.T) {
+	messages := []provider.Message{{Role: "user", Content: "old old old old old old old old old old"}, {Role: "assistant", Content: "reply reply"}, {Role: "user", Content: "latest"}}
+	result, err := CompactToTokenBudget(context.Background(), messages, 20, func(context.Context, []provider.Message) (string, error) { return "summary", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if EstimateTokens(result) > 20 || result[0].Role != "system" {
+		t.Fatalf("result=%#v tokens=%d", result, EstimateTokens(result))
+	}
+}
