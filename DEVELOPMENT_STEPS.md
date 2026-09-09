@@ -338,6 +338,7 @@ go run ./cmd/cortexgo \
 - `VectorDatabase` 提供专用向量存储契约，内置文件实现支持 Upsert、metadata 过滤、文档级删除和持久化恢复；后续可接入 Milvus、pgvector 等生产后端。
 - `internal/reliability` 已定义 PostgreSQL/Redis 适配接口，并提供租户级请求、Token、成本预算和并发背压，以及 JSON 备份/恢复基础工具；生产部署仍需补充数据库迁移脚本、分布式锁和定时备份编排。
 - Knowledge 已补充 OCR 运行时检测、文档版本哈希、异步增量导入/进度查询和 BM25 风格词频饱和；表格/图片/脚注的完整版面语义与生产级重排模型仍需专用解析器和模型适配。
+- `internal/core` 定义统一 `Task`、`Run`、`Event`、`Tool` 和 `EventSink` 契约，作为后台任务、Agent 执行和事件观测的公共边界。
 - HTTP API、服务部署、健康检查和优雅退出。
 - 安全边界：SSRF、Prompt Injection、数据泄露和工具滥用。
 
