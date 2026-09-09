@@ -25,6 +25,8 @@ type Agent struct {
 	toolTimeout   time.Duration
 	authorizer    ToolAuthorizer
 	auditLogger   ToolAuditLogger
+	contextLimit  int
+	summarizer    memory.SummaryFunc
 }
 
 type ChatResult = provider.ChatResult
@@ -75,6 +77,18 @@ func WithToolAuditLogger(logger ToolAuditLogger) Option {
 	return func(a *Agent) { a.auditLogger = logger }
 }
 
+func WithContextMessageLimit(limit int) Option {
+	return func(a *Agent) {
+		if limit > 0 {
+			a.contextLimit = limit
+		}
+	}
+}
+
+func WithConversationSummarizer(summarizer memory.SummaryFunc) Option {
+	return func(a *Agent) { a.summarizer = summarizer }
+}
+
 func New(model provider.ChatModel, store memory.Store, options ...Option) *Agent {
 	a := &Agent{
 		model:         model,
@@ -112,6 +126,19 @@ func (a *Agent) run(ctx context.Context, sessionID, input string, stream bool, o
 		return ChatResult{}, err
 	}
 	historyStart := len(history)
+	if a.contextLimit > 0 && len(history)+1 > a.contextLimit {
+		compacted, compactErr := compactHistory(ctx, history, a.contextLimit-1, a.summarizer)
+		if compactErr != nil {
+			return ChatResult{}, compactErr
+		}
+		if replacer, ok := a.memory.(memory.ReplaceStore); ok {
+			if err := replacer.Replace(ctx, sessionID, compacted...); err != nil {
+				return ChatResult{}, fmt.Errorf("agent: persist compacted history: %w", err)
+			}
+		}
+		history = compacted
+		historyStart = len(history)
+	}
 	transcript := append(history, provider.Message{Role: "user", Content: input})
 	options := provider.ChatOptions{Tools: providerTools(a.tools)}
 	totalUsage := provider.Usage{}
@@ -175,6 +202,26 @@ func (a *Agent) run(ctx context.Context, sessionID, input string, stream bool, o
 			})
 		}
 	}
+}
+
+func compactHistory(ctx context.Context, history []provider.Message, limit int, summarize memory.SummaryFunc) ([]provider.Message, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("agent: context message limit must be greater than one")
+	}
+	if len(history) <= limit {
+		return append([]provider.Message(nil), history...), nil
+	}
+	if len(history) > 0 && history[0].Role == "system" && strings.HasPrefix(history[0].Content, "Conversation summary:\n") {
+		keep := limit - 1
+		if keep < 0 {
+			keep = 0
+		}
+		start := len(history) - keep
+		result := append([]provider.Message(nil), history[:1]...)
+		result = append(result, history[start:]...)
+		return result, nil
+	}
+	return memory.Compact(ctx, history, limit, summarize)
 }
 
 func (a *Agent) callModel(

@@ -13,6 +13,12 @@ type Store interface {
 	List(ctx context.Context, sessionID string) ([]provider.Message, error)
 }
 
+// ReplaceStore optionally supports replacing a session after compaction.
+type ReplaceStore interface {
+	Store
+	Replace(ctx context.Context, sessionID string, messages ...provider.Message) error
+}
+
 type InMemory struct {
 	mu       sync.RWMutex
 	sessions map[string][]provider.Message
@@ -32,4 +38,11 @@ func (m *InMemory) List(_ context.Context, sessionID string) ([]provider.Message
 	defer m.mu.RUnlock()
 	result := append([]provider.Message(nil), m.sessions[sessionID]...)
 	return result, nil
+}
+
+func (m *InMemory) Replace(_ context.Context, sessionID string, messages ...provider.Message) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sessions[sessionID] = append([]provider.Message(nil), messages...)
+	return nil
 }

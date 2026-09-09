@@ -29,3 +29,19 @@ func TestCompactRequiresSummaryFunction(t *testing.T) {
 		t.Fatal("expected missing summary function error")
 	}
 }
+
+func TestCompactKeepsToolCallWithItsResult(t *testing.T) {
+	messages := []provider.Message{
+		{Role: "user", Content: "request"},
+		{Role: "assistant", ToolCalls: []provider.ToolCall{{ID: "call-1", Type: "function"}}},
+		{Role: "tool", ToolCallID: "call-1", Content: "result"},
+		{Role: "user", Content: "follow-up"},
+	}
+	result, err := Compact(context.Background(), messages, 3, func(context.Context, []provider.Message) (string, error) { return "summary", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result) < 3 || result[1].Role != "assistant" || result[2].Role != "tool" || result[2].ToolCallID != "call-1" {
+		t.Fatalf("tool pair was split: %#v", result)
+	}
+}

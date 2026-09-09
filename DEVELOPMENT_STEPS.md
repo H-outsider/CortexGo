@@ -299,7 +299,7 @@ go run ./cmd/cortexgo \
 
 当前已实现 `FileStore`，支持 JSON 会话持久化、重启恢复、按 session 删除和原子写入；另有 `FactStore`/`InMemoryFactStore` 管理用户级长期事实并支持按 key 遗忘。`memory.Store` 接口保持不变。
 
-另有 `Compact` 上下文压缩函数：通过注入 `SummaryFunc` 将旧消息合并为摘要，并保留最近消息；它是模型无关的纯内存能力，尚未自动接入 Agent 主循环。
+`Compact` 已通过 `WithContextMessageLimit` 和 `WithConversationSummarizer` 接入 Agent 主循环：超限时摘要旧消息、保留最近消息，并在支持 `ReplaceStore` 的 Memory Store 中写回压缩结果；已有摘要不会在每轮重复生成。
 
 ### 学习练习
 

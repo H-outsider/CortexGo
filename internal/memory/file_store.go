@@ -69,6 +69,16 @@ func (s *FileStore) Delete(ctx context.Context, sessionID string) error {
 	return s.persistLocked()
 }
 
+func (s *FileStore) Replace(ctx context.Context, sessionID string, messages ...provider.Message) error {
+	if err := contextError(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions[sessionID] = cloneMessages(messages)
+	return s.persistLocked()
+}
+
 func (s *FileStore) persistLocked() error {
 	data, err := json.MarshalIndent(s.sessions, "", "  ")
 	if err != nil {

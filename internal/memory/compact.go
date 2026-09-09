@@ -23,6 +23,10 @@ func Compact(ctx context.Context, messages []provider.Message, limit int, summar
 	if cut < 1 {
 		cut = 1
 	}
+	// Never leave a retained tool result without its assistant tool-call message.
+	for cut > 0 && cut < len(messages) && messages[cut].Role == "tool" {
+		cut--
+	}
 	summary, err := summarize(ctx, messages[:cut])
 	if err != nil {
 		return nil, fmt.Errorf("memory: summarize conversation: %w", err)

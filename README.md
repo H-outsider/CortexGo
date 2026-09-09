@@ -50,6 +50,8 @@ go run ./cmd/cortexgo -knowledge-file=README.md -knowledge-query="向量检索"
 
 会话上下文提供可注入摘要函数的压缩能力，可将旧消息合并为摘要并保留最近对话，避免上下文无限增长。
 
+Agent 可通过消息数上限和 `SummaryFunc` 自动触发上下文压缩；压缩后的历史会写回支持替换的 Memory Store，避免每轮重复摘要。
+
 知识管理基础层已支持 Unicode 文档切分、线程安全内存索引、关键词检索、向量检索和混合搜索；Embedding provider 与持久化向量数据库通过接口接入。
 
 ## 分阶段路线

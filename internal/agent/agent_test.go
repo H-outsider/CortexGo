@@ -209,6 +209,34 @@ func TestToolAuthorizationAndAudit(t *testing.T) {
 	}
 }
 
+func TestAgentAutomaticallyCompactsHistory(t *testing.T) {
+	store := memory.NewInMemory()
+	if err := store.Append(context.Background(), "compact", provider.Message{Role: "user", Content: "old"}, provider.Message{Role: "assistant", Content: "reply"}); err != nil {
+		t.Fatal(err)
+	}
+	called := 0
+	a := New(provider.Echo{}, store, WithContextMessageLimit(2), WithConversationSummarizer(func(_ context.Context, messages []provider.Message) (string, error) {
+		called++
+		return messages[0].Content + " summarized", nil
+	}))
+	if _, err := a.Chat(context.Background(), "compact", "new"); err != nil {
+		t.Fatal(err)
+	}
+	if called != 1 {
+		t.Fatalf("summarizer calls = %d", called)
+	}
+	history, err := store.List(context.Background(), "compact")
+	if err != nil || len(history) != 3 || history[0].Role != "system" || !strings.Contains(history[0].Content, "summarized") {
+		t.Fatalf("history=%#v err=%v", history, err)
+	}
+	if _, err := a.Chat(context.Background(), "compact", "again"); err != nil {
+		t.Fatal(err)
+	}
+	if called != 1 {
+		t.Fatalf("summary was repeated: %d", called)
+	}
+}
+
 type scriptedToolModel struct {
 	calls             int
 	capturedMessages  [][]provider.Message
