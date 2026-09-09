@@ -54,6 +54,8 @@ Agent 可通过消息数上限和 `SummaryFunc` 自动触发上下文压缩；�
 
 知识管理基础层已支持 Unicode 文档切分、线程安全内存索引、关键词检索、向量检索和混合搜索；Embedding provider 与持久化向量数据库通过接口接入。
 
+知识库还提供 `knowledge.SearchTool(index)`，可注册到 Agent 的工具 Registry，让模型在对话中检索知识并获得 chunk 引用。
+
 ## 分阶段路线
 
 1. 最小内核（已完成）：接口、会话记忆、可运行 CLI。

@@ -260,6 +260,7 @@ go run ./cmd/cortexgo
 - 原子写入。
 - 进程重启后恢复向量和 Chunk。
 - `NewPersistentHybridIndex` 自动重建关键词索引。
+- `knowledge.SearchTool` 将知识检索暴露为带引用的 Agent 工具。
 
 主要文件：
 
@@ -267,6 +268,7 @@ go run ./cmd/cortexgo
 - `internal/knowledge/vector.go`
 - `internal/knowledge/persistent.go`
 - `internal/provider/embedding.go`
+- `internal/knowledge/tool.go`
 
 CLI 验收：
 
