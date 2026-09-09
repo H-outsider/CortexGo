@@ -344,6 +344,7 @@ go run ./cmd/cortexgo \
 - `tasks.GORMStore` 已提供 PostgreSQL/GORM 持久化任务模型、迁移、lease 领取和状态更新；payload 编解码、连接池和清理策略由业务层配置。
 - 新增 `MilvusVectorStore`，通过最小 `MilvusClient` 接口桥接官方 Milvus SDK，避免核心包绑定 SDK 版本。
 - Provider 增加 GLM、DeepSeek、Qwen、Groq 端点预设和统一工厂，模型协议仍由 OpenAI-compatible 适配层统一处理。
+- `internal/observability` 统一模型遥测与执行事件，新增 Langfuse ingestion sink 和多后端 fan-out。
 - HTTP API、服务部署、健康检查和优雅退出。
 - 安全边界：SSRF、Prompt Injection、数据泄露和工具滥用。
 
