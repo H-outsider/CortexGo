@@ -93,6 +93,9 @@ func (s *InMemoryFactStore) List(ctx context.Context, userID string) ([]Fact, er
 			delete(s.facts, id)
 			continue
 		}
+		if fact.Sensitive && !s.policy.AllowSensitive {
+			continue
+		}
 		if fact.UserID == userID {
 			result = append(result, fact)
 		}
@@ -226,6 +229,9 @@ func (s *FileFactStore) List(ctx context.Context, userID string) ([]Fact, error)
 		if isExpired(fact, now) {
 			delete(s.facts, id)
 			changed = true
+			continue
+		}
+		if fact.Sensitive && !s.policy.AllowSensitive {
 			continue
 		}
 		if fact.UserID == userID {
