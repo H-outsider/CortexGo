@@ -300,7 +300,7 @@ go run ./cmd/cortexgo \
 - 数据生命周期、隐私、可控遗忘和租户隔离。
 - 记忆召回与知识召回的合并排序。
 
-当前已实现 `FileStore`，支持 JSON 会话持久化、重启恢复、按 session 删除和原子写入；另有 `FactStore`/`InMemoryFactStore` 管理用户级长期事实并支持按 key 遗忘。`memory.Store` 接口保持不变。
+当前已实现 `FileStore`，支持 JSON 会话持久化、重启恢复、按 session 删除和原子写入；另有 `FactStore`/`InMemoryFactStore` 管理用户级长期事实并支持按 key 遗忘，`FileFactStore` 提供 JSON 持久化与重启恢复。事实存储支持隐私策略（敏感事实开关、值长度上限、默认 TTL、过期清理）和按用户全部遗忘；`memory.Store` 接口保持不变。文件事实存储目前未实现静态加密和跨进程锁。
 
 `Compact` 已通过 `WithContextMessageLimit`、`WithContextTokenBudget` 和 `WithConversationSummarizer` 接入 Agent 主循环：超限时摘要旧消息、保留最近消息，并在支持 `ReplaceStore` 的 Memory Store 中写回压缩结果；已有摘要不会在每轮重复生成。Token 预算使用模型无关的近似估算，预算过小时优先保留摘要和最新消息。
 
@@ -378,4 +378,4 @@ go run ./cmd/cortexgo \
 
 ## 当前工作区说明
 
-当前仓库的阶段性改动仍在工作区中，尚未提交。开始新任务时必须保留已有未提交修改，不要使用 `git reset --hard` 或覆盖性 checkout 操作。
+当前仓库的阶段性改动会在每个开发阶段完成后提交并同步到远端；开始新任务时仍需先检查工作区，保留已有未提交修改，不要使用 `git reset --hard` 或覆盖性 checkout 操作。
