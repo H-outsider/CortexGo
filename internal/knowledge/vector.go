@@ -106,6 +106,9 @@ func NewHybridIndex(embedder EmbeddingModel, alpha float64) (*HybridIndex, error
 }
 
 func (i *HybridIndex) Add(ctx context.Context, document Document) error {
+	if err := i.RemoveDocument(ctx, document.ID); err != nil {
+		return err
+	}
 	chunks, err := SplitDocument(document, ChunkOptions{})
 	if err != nil {
 		return err
@@ -124,7 +127,23 @@ func (i *HybridIndex) Add(ctx context.Context, document Document) error {
 	return i.lexical.Add(ctx, document)
 }
 
+func (i *HybridIndex) RemoveDocument(ctx context.Context, documentID string) error {
+	if err := contextError(ctx); err != nil {
+		return err
+	}
+	if remover, ok := i.vector.(DocumentRemover); ok {
+		if err := remover.RemoveDocument(ctx, documentID); err != nil {
+			return err
+		}
+	}
+	return i.lexical.RemoveDocument(ctx, documentID)
+}
+
 func (i *HybridIndex) Search(ctx context.Context, query string, limit int) ([]Result, error) {
+	return i.SearchWithFilter(ctx, query, limit, nil)
+}
+
+func (i *HybridIndex) SearchWithFilter(ctx context.Context, query string, limit int, filter MetadataFilter) ([]Result, error) {
 	queries, err := i.embedder.Embed(ctx, []string{query})
 	if err != nil {
 		return nil, fmt.Errorf("knowledge: embed query: %w", err)
@@ -132,7 +151,7 @@ func (i *HybridIndex) Search(ctx context.Context, query string, limit int) ([]Re
 	if len(queries) != 1 {
 		return nil, fmt.Errorf("knowledge: embedding model returned %d query vectors", len(queries))
 	}
-	lexical, err := i.lexical.Search(ctx, query, limit)
+	lexical, err := i.lexical.SearchWithFilter(ctx, query, limit, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -147,6 +166,9 @@ func (i *HybridIndex) Search(ctx context.Context, query string, limit int) ([]Re
 		chunks[result.Chunk.ID] = result.Chunk
 	}
 	for _, result := range vector {
+		if !matchesMetadata(result.Chunk.Metadata, filter) {
+			continue
+		}
 		scores[result.Chunk.ID] += i.alpha * ((result.Score + 1) / 2)
 		chunks[result.Chunk.ID] = result.Chunk
 	}

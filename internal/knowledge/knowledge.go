@@ -92,6 +92,17 @@ type Index interface {
 	Search(ctx context.Context, query string, limit int) ([]Result, error)
 }
 
+// MetadataFilter matches chunks whose metadata contains all requested values.
+type MetadataFilter map[string]string
+
+type FilteredIndex interface {
+	SearchWithFilter(ctx context.Context, query string, limit int, filter MetadataFilter) ([]Result, error)
+}
+
+type DocumentRemover interface {
+	RemoveDocument(ctx context.Context, documentID string) error
+}
+
 type InMemoryIndex struct {
 	mu     sync.RWMutex
 	chunks map[string]Chunk
@@ -134,6 +145,10 @@ func (i *InMemoryIndex) addChunkLocked(chunk Chunk) error {
 }
 
 func (i *InMemoryIndex) Search(ctx context.Context, query string, limit int) ([]Result, error) {
+	return i.SearchWithFilter(ctx, query, limit, nil)
+}
+
+func (i *InMemoryIndex) SearchWithFilter(ctx context.Context, query string, limit int, filter MetadataFilter) ([]Result, error) {
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
@@ -147,6 +162,9 @@ func (i *InMemoryIndex) Search(ctx context.Context, query string, limit int) ([]
 	i.mu.RLock()
 	results := make([]Result, 0, len(i.chunks))
 	for _, chunk := range i.chunks {
+		if !matchesMetadata(chunk.Metadata, filter) {
+			continue
+		}
 		score := scoreChunk(terms, chunk.Text)
 		if score > 0 {
 			results = append(results, Result{Chunk: cloneChunk(chunk), Score: score})
@@ -163,6 +181,29 @@ func (i *InMemoryIndex) Search(ctx context.Context, query string, limit int) ([]
 		results = results[:limit]
 	}
 	return results, nil
+}
+
+func (i *InMemoryIndex) RemoveDocument(ctx context.Context, documentID string) error {
+	if err := contextError(ctx); err != nil {
+		return err
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	for id, chunk := range i.chunks {
+		if chunk.DocumentID == documentID {
+			delete(i.chunks, id)
+		}
+	}
+	return nil
+}
+
+func matchesMetadata(metadata map[string]string, filter MetadataFilter) bool {
+	for key, value := range filter {
+		if metadata == nil || metadata[key] != value {
+			return false
+		}
+	}
+	return true
 }
 
 func tokenize(text string) []string {

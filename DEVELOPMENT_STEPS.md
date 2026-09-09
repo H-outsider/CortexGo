@@ -261,6 +261,7 @@ go run ./cmd/cortexgo
 - 进程重启后恢复向量和 Chunk。
 - `NewPersistentHybridIndex` 自动重建关键词索引。
 - `knowledge.SearchTool` 将知识检索暴露为带引用的 Agent 工具。
+- Knowledge 检索支持 metadata 全匹配过滤；同一文档 ID 重复导入会删除旧 chunks 后写入新版本，避免增量更新残留。
 - CLI 只指定 `-knowledge-file` 时会在交互式 Agent 中自动注册知识检索工具。
 
 主要文件：
@@ -288,7 +289,7 @@ go run ./cmd/cortexgo \
 - 当前索引文件是本地 JSON，不适合多进程并发写入。
 - 关键词检索仍是轻量实现，不是完整 BM25。
 - 向量索引尚未接入专用向量数据库。
-- 文档解析目前支持 txt、Markdown 和基础 HTML，尚未支持 PDF、Office 等复杂格式。
+- 文档解析支持 txt、Markdown、基础 HTML，以及 PDF、DOCX、XLSX、PPTX 文本提取；扫描型 PDF 通过 pdftoppm + Tesseract OCR 处理，旧版二进制 Office（DOC/XLS/PPT）通过 LibreOffice/soffice 转换。
 
 ## 阶段五：记忆系统（基础能力已完成）
 

@@ -44,3 +44,24 @@ func TestIndexHonorsCanceledContext(t *testing.T) {
 		t.Fatal("expected canceled context error")
 	}
 }
+
+func TestIndexMetadataFilterAndIncrementalUpdate(t *testing.T) {
+	index := NewInMemoryIndex()
+	ctx := context.Background()
+	if err := index.Add(ctx, Document{ID: "doc", Content: "old text", Metadata: map[string]string{"team": "a"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := index.Add(ctx, Document{ID: "doc", Content: "new text", Metadata: map[string]string{"team": "b"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := index.SearchWithFilter(ctx, "old", 5, nil); len(got) != 0 {
+		t.Fatalf("stale chunks: %#v", got)
+	}
+	got, err := index.SearchWithFilter(ctx, "new", 5, MetadataFilter{"team": "b"})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("got=%#v err=%v", got, err)
+	}
+	if got, _ := index.SearchWithFilter(ctx, "new", 5, MetadataFilter{"team": "a"}); len(got) != 0 {
+		t.Fatalf("filter mismatch: %#v", got)
+	}
+}

@@ -13,14 +13,15 @@ func SearchTool(index Index) tool.Definition {
 	return tool.Definition{
 		Name:        "knowledge_search",
 		Description: "Search the knowledge base and return matching text with citations.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer"}},"required":["query"],"additionalProperties":false}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer"},"metadata":{"type":"object"}},"required":["query"],"additionalProperties":false}`),
 		Handler: func(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
 			if index == nil {
 				return nil, fmt.Errorf("knowledge index is not configured")
 			}
 			var request struct {
-				Query string `json:"query"`
-				Limit int    `json:"limit"`
+				Query    string         `json:"query"`
+				Limit    int            `json:"limit"`
+				Metadata MetadataFilter `json:"metadata"`
 			}
 			if err := json.Unmarshal(input, &request); err != nil {
 				return nil, err
@@ -28,7 +29,13 @@ func SearchTool(index Index) tool.Definition {
 			if request.Limit <= 0 {
 				request.Limit = 5
 			}
-			results, err := index.Search(ctx, request.Query, request.Limit)
+			var results []Result
+			var err error
+			if filtered, ok := index.(FilteredIndex); ok {
+				results, err = filtered.SearchWithFilter(ctx, request.Query, request.Limit, request.Metadata)
+			} else {
+				results, err = index.Search(ctx, request.Query, request.Limit)
+			}
 			if err != nil {
 				return nil, err
 			}

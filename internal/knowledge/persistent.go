@@ -89,6 +89,20 @@ func (i *FileVectorIndex) SearchVector(ctx context.Context, vector []float64, li
 	return results, nil
 }
 
+func (i *FileVectorIndex) RemoveDocument(ctx context.Context, documentID string) error {
+	if err := contextError(ctx); err != nil {
+		return err
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	for id, entry := range i.entries {
+		if entry.chunk.DocumentID == documentID {
+			delete(i.entries, id)
+		}
+	}
+	return i.persistLocked()
+}
+
 func (i *FileVectorIndex) Chunks() []Chunk {
 	i.mu.RLock()
 	defer i.mu.RUnlock()

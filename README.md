@@ -56,7 +56,7 @@ Agent 可通过消息数上限或近似 Token 预算和 `SummaryFunc` 自动触�
 
 知识管理基础层已支持 Unicode 文档切分、线程安全内存索引、关键词检索、向量检索和混合搜索；Embedding provider 与持久化向量数据库通过接口接入。
 
-知识库还提供 `knowledge.SearchTool(index)`，可注册到 Agent 的工具 Registry，让模型在对话中检索知识并获得 chunk 引用。
+知识库还提供 `knowledge.SearchTool(index)`，可注册到 Agent 的工具 Registry，让模型在对话中检索知识并获得 chunk 引用；搜索支持按 metadata 精确过滤，重复添加同一文档 ID 会先移除旧 chunks，实现增量更新。
 
 ## 分阶段路线
 
