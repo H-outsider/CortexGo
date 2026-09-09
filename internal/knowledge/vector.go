@@ -29,7 +29,7 @@ type VectorDatabase interface {
 	VectorIndex
 	SearchVectorWithFilter(ctx context.Context, vector []float64, limit int, filter MetadataFilter) ([]VectorResult, error)
 	RemoveDocument(ctx context.Context, documentID string) error
-	Count(ctx context.Context) int
+	Count(ctx ...context.Context) int
 }
 
 type InMemoryVectorIndex struct {
@@ -118,7 +118,8 @@ func (i *InMemoryVectorIndex) RemoveDocument(ctx context.Context, documentID str
 	return nil
 }
 
-func (i *InMemoryVectorIndex) Count(_ context.Context) int {
+// Count returns the number of indexed chunks. The optional context preserves compatibility with context-aware callers.
+func (i *InMemoryVectorIndex) Count(_ ...context.Context) int {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 	return len(i.entries)

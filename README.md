@@ -79,4 +79,6 @@ Agent 提供 `WithTelemetry` 和 `WithCostMonitor` 观测钩子：每次模型�
 
 HTTP API 可通过 `internal/api` 使用：注册 `api.NewServer(agent).Handler()` 后挂载到 `http.Server`。提供 `GET /healthz`、`POST /chat` 和 OpenAI 兼容的 `POST /v1/chat/completions`；请求支持 `session_id`、`input`、`messages` 和 `stream` 字段，流式响应使用 SSE。
 
+服务化还提供 `GET /openapi.json`、`GET /metrics`，自动注入 `X-Request-ID`/`X-Trace-ID`，支持 CORS、gzip 和 `api.ServeTLS`。建议在生产环境前置 Nginx/云负载均衡，负责证书续期、连接复用和访问日志。
+
 每一步都会先保持接口稳定，再替换实现，避免把业务代码绑定到某一个模型或数据库。

@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test
+        run: go test ./...
+      - name: Build release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in 'linux amd64' 'linux arm64' 'darwin arm64' 'windows amd64'; do
+            read -r os arch <<< "$target"
+            suffix=""
+            [[ "$os" == windows ]] && suffix=".exe"
+            name="cortexgo-${os}-${arch}"
+            GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags='-s -w' -o "dist/${name}${suffix}" ./cmd/cortexgo
+            tar -czf "dist/${name}.tar.gz" -C dist "${name}${suffix}"
+            rm "dist/${name}${suffix}"
+          done
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*.tar.gz
