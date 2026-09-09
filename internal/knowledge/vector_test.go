@@ -55,6 +55,28 @@ func TestInMemoryVectorIndexSearchesByCosine(t *testing.T) {
 	}
 }
 
+func TestVectorDatabaseFiltersAndRemovesDocuments(t *testing.T) {
+	db := NewInMemoryVectorIndex()
+	ctx := context.Background()
+	chunks := []Chunk{{ID: "a:0", DocumentID: "a", Text: "a", Metadata: map[string]string{"tenant": "one"}}, {ID: "b:0", DocumentID: "b", Text: "b", Metadata: map[string]string{"tenant": "two"}}}
+	if err := db.Upsert(ctx, chunks, [][]float64{{1, 0}, {1, 0}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.SearchVectorWithFilter(ctx, []float64{1, 0}, 10, MetadataFilter{"tenant": "one"})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("got=%#v err=%v", got, err)
+	}
+	if db.Count(ctx) != 2 {
+		t.Fatal("unexpected count")
+	}
+	if err := db.RemoveDocument(ctx, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if db.Count(ctx) != 1 {
+		t.Fatal("document was not removed")
+	}
+}
+
 func TestHybridIndexCombinesLexicalAndVectorSearch(t *testing.T) {
 	index, err := NewHybridIndex(testEmbedder{}, 0.5)
 	if err != nil {

@@ -12,6 +12,8 @@ go test ./...
 go run ./cmd/cortexgo -show-usage
 ```
 
+评测与 CI/CD：`make ci` 会依次执行 `vet`、单元测试、竞态测试和构建；`make coverage` 输出覆盖率明细，`make bench` 运行基准评测。推送到主分支或提交 Pull Request 时，GitHub Actions 自动执行格式检查、测试、竞态检测和构建；推送 `vX.Y.Z` 标签时自动构建 Linux/macOS/Windows 发布包并创建 GitHub Release。
+
 接入真实模型：
 
 ```bash
@@ -57,6 +59,8 @@ Agent 可通过消息数上限或近似 Token 预算和 `SummaryFunc` 自动触�
 知识管理基础层已支持 Unicode 文档切分、线程安全内存索引、关键词检索、向量检索和混合搜索；Embedding provider 与持久化向量数据库通过接口接入。
 
 知识库还提供 `knowledge.SearchTool(index)`，可注册到 Agent 的工具 Registry，让模型在对话中检索知识并获得 chunk 引用；搜索支持按 metadata 精确过滤，重复添加同一文档 ID 会先移除旧 chunks，实现增量更新。
+
+专用向量数据库接口 `knowledge.VectorDatabase` 已提供持久化实现 `OpenVectorDatabase(path)`，支持向量 Upsert、余弦相似度检索、metadata 过滤、文档删除和条目统计；底层文件格式便于本地开发，生产环境可替换为外部向量数据库。
 
 Agent 提供 `WithTelemetry` 和 `WithCostMonitor` 观测钩子：每次模型调用记录耗时、模型、Token 用量和错误，并可按模型配置每 1K Token 价格计算 USD 成本。`internal/telemetry` 的无依赖接口可桥接到 OpenTelemetry SDK；框架不内置导出器，避免绑定具体后端。
 

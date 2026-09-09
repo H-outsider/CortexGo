@@ -23,6 +23,15 @@ type VectorIndex interface {
 	SearchVector(ctx context.Context, vector []float64, limit int) ([]VectorResult, error)
 }
 
+// VectorDatabase is the dedicated vector-storage contract used by retrieval layers.
+// Implementations may persist vectors and provide metadata-filtered nearest-neighbor search.
+type VectorDatabase interface {
+	VectorIndex
+	SearchVectorWithFilter(ctx context.Context, vector []float64, limit int, filter MetadataFilter) ([]VectorResult, error)
+	RemoveDocument(ctx context.Context, documentID string) error
+	Count(ctx context.Context) int
+}
+
 type InMemoryVectorIndex struct {
 	mu      sync.RWMutex
 	entries map[string]vectorEntry
@@ -58,6 +67,10 @@ func (i *InMemoryVectorIndex) Upsert(ctx context.Context, chunks []Chunk, vector
 }
 
 func (i *InMemoryVectorIndex) SearchVector(ctx context.Context, vector []float64, limit int) ([]VectorResult, error) {
+	return i.SearchVectorWithFilter(ctx, vector, limit, nil)
+}
+
+func (i *InMemoryVectorIndex) SearchVectorWithFilter(ctx context.Context, vector []float64, limit int, filter MetadataFilter) ([]VectorResult, error) {
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
@@ -70,6 +83,9 @@ func (i *InMemoryVectorIndex) SearchVector(ctx context.Context, vector []float64
 	i.mu.RLock()
 	results := make([]VectorResult, 0, len(i.entries))
 	for _, entry := range i.entries {
+		if !matchesMetadata(entry.chunk.Metadata, filter) {
+			continue
+		}
 		if len(entry.vector) != len(vector) {
 			continue
 		}
@@ -86,6 +102,26 @@ func (i *InMemoryVectorIndex) SearchVector(ctx context.Context, vector []float64
 		results = results[:limit]
 	}
 	return results, nil
+}
+
+func (i *InMemoryVectorIndex) RemoveDocument(ctx context.Context, documentID string) error {
+	if err := contextError(ctx); err != nil {
+		return err
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	for id, entry := range i.entries {
+		if entry.chunk.DocumentID == documentID {
+			delete(i.entries, id)
+		}
+	}
+	return nil
+}
+
+func (i *InMemoryVectorIndex) Count(_ context.Context) int {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return len(i.entries)
 }
 
 type HybridIndex struct {
@@ -155,7 +191,14 @@ func (i *HybridIndex) SearchWithFilter(ctx context.Context, query string, limit 
 	if err != nil {
 		return nil, err
 	}
-	vector, err := i.vector.SearchVector(ctx, queries[0], limit)
+	var vector []VectorResult
+	if database, ok := i.vector.(interface {
+		SearchVectorWithFilter(context.Context, []float64, int, MetadataFilter) ([]VectorResult, error)
+	}); ok {
+		vector, err = database.SearchVectorWithFilter(ctx, queries[0], limit, filter)
+	} else {
+		vector, err = i.vector.SearchVector(ctx, queries[0], limit)
+	}
 	if err != nil {
 		return nil, err
 	}

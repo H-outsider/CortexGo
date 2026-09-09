@@ -65,6 +65,10 @@ func (i *FileVectorIndex) Upsert(ctx context.Context, chunks []Chunk, vectors []
 }
 
 func (i *FileVectorIndex) SearchVector(ctx context.Context, vector []float64, limit int) ([]VectorResult, error) {
+	return i.SearchVectorWithFilter(ctx, vector, limit, nil)
+}
+
+func (i *FileVectorIndex) SearchVectorWithFilter(ctx context.Context, vector []float64, limit int, filter MetadataFilter) ([]VectorResult, error) {
 	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
@@ -77,6 +81,9 @@ func (i *FileVectorIndex) SearchVector(ctx context.Context, vector []float64, li
 	i.mu.RLock()
 	results := make([]VectorResult, 0, len(i.entries))
 	for _, entry := range i.entries {
+		if !matchesMetadata(entry.chunk.Metadata, filter) {
+			continue
+		}
 		if len(entry.vector) == len(vector) {
 			results = append(results, VectorResult{Chunk: cloneChunk(entry.chunk), Score: cosine(vector, entry.vector)})
 		}
@@ -88,6 +95,15 @@ func (i *FileVectorIndex) SearchVector(ctx context.Context, vector []float64, li
 	}
 	return results, nil
 }
+
+func (i *FileVectorIndex) Count(_ context.Context) int {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return len(i.entries)
+}
+
+// OpenVectorDatabase opens the built-in persistent vector database.
+func OpenVectorDatabase(path string) (*FileVectorIndex, error) { return OpenFileVectorIndex(path) }
 
 func (i *FileVectorIndex) RemoveDocument(ctx context.Context, documentID string) error {
 	if err := contextError(ctx); err != nil {
